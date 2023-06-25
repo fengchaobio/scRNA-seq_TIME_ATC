@@ -1,0 +1,1138 @@
+---
+title: "CGT Plot"
+author: "fengchao"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = F,root.dir = '~/Desktop/thyroid/thyroid-srna-seq/')
+```
+
+```{r}
+cdt_color = c('#F9AE7D','#BE1E2D')
+```
+
+##Fig1 
+
+### a 
+> Biorender protocol
+
+### b
+
+```{r}
+source("~/Documents/mytools/seurat_help_func.R")
+se_ob_imm <- seurat_read_rds("./data/PTC_ATC/se_ob_imm.rds",scale = "Part")
+
+color <- c("#D1724D", "#a80629", "#b50036", "#b22340", "#e02645", "#ea3427", 
+           "#ce5031", "#e88176", "#ed8276", "#e07162", "#f7adb5", "#ef88b0",
+           "#028916", "#0c9b51", "#01773c", "#838e0b", "#047a3b", "#579b09", "#6ca00b",
+           "#8874fc", "#cbbdf9", "#92c9e8", "#90a3ed", "#a0eaef")
+p1 <- DimPlot(se_ob_imm,
+        group.by = 'cell_types_4',
+        label = T,label.size = 3,
+        cols = color)+
+  labs(subtitle = 'Merge')+
+  theme(legend.position = "none",
+        axis.line.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.line.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank())
+
+p2 <- DimPlot(se_ob_imm,
+        group.by = 'cell_types_4',
+        split.by = "condition",
+        label = T,label.size = 3,
+        cols = color)+
+  theme(legend.position = "none",
+        axis.line.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.line.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank())
+
+library(cowplot)
+cowplot::plot_grid(p1,p2,rel_widths = c(1,1.8))
+```
+
+### c
+
+```{r}
+cell.ident <- data.frame(orig.ident = se_ob_imm$orig.ident,
+                        sample = se_ob_imm$condition,
+                        cluster = se_ob_imm$cell_types_4,
+                        ann    = se_ob_imm$cell_types_3)
+
+plotData <- cell.ident %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3))
+
+ggbarplot(plotData, "orig.ident", "freq",
+          fill = "ann", color = "black", palette = c("#D1724D","#ea3427", "#028916", "#8874fc"),
+          label = F, lab.pos = "in")+
+  theme(legend.position = 'right')+
+  rotate_x_text(90)+xlab('')
+```
+
+### d
+
+```{r}
+nk.marker <- c('NKG7','GNLY','KLRD1','KLRF1')
+t.marker <- c('CD3D','CD247')
+b.marker <- c('CD79A', 'MS4A1', 'IGKC', 'IGHG1', 'MZB1')
+macphage.marker <- c('CD68','CD14', 'FCGR3A', 'LYZ', 'S100A8', 'S100A9','CD163')
+dc.marker <- c('HLA-DRA', 'HLA-DRB1')
+
+imm.makrer <- c(nk.marker,t.marker,b.marker,macphage.marker,dc.marker)
+jjDotPlot(object = se_ob_imm,
+          gene = imm.makrer,
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_4')
+```
+
+##Fig2
+```{r}
+source("~/Documents/mytools/seurat_help_func.R")
+se_ob_t <- seurat_read_rds('./data/PTC_ATC/se_ob_t.rds',scale = 'Part')
+```
+###a Dimplot
+
+```{r}
+color <- c('#d3a0ff','#a980cc','#7f6099',
+           '#8fedd4','#7fdbc2','#6ecab1','#5db8a0','#4da78e','#3c957d','#3c957d','#2b846c','#1b725a',
+           '#D1724D',
+           '#a0fee5')
+p1 <- DimPlot(se_ob_t,
+        group.by = 'cell_types_5',
+        label = T,label.size = 3,
+        cols = color)+
+  labs(subtitle = 'merge')+
+  theme(legend.position = "none")
+
+p2 <- DimPlot(se_ob_t,
+        group.by = 'cell_types_5',
+        split.by = 'condition',
+        label = T,label.size = 3,
+        cols = color)+
+  theme(legend.position = "none")
+cowplot::plot_grid(p1,p2,rel_widths = c(1,1.6))
+FeaturePlot(se_ob_t,features = "CD4")
+FeaturePlot(se_ob_t,features = "CD8A")
+```
+
+###b Dotplot
+
+```{r}
+markers = c('CD3D','CD4','CD8A',
+            'IL2RA','FOXP3','CTLA4',
+            'HAVCR2','LAG3','PDCD1','TIGIT',
+            'GZMB','GNLY','IFNG','KLRD1',
+            'SELL','CCR7','TCF7','LEF1',
+            'TRGV5')
+jjDotPlot(object = se_ob_t,
+          gene = markers,
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_5',
+          cluster.order = c('CD4-C1','CD4-C3','CD4-C2',
+                            'CD8-C1','CD8-C8','CD8-C6','CD8-C3','CD8-C2',
+                            'CD8-C5','CD8-C9','CD8-C7','CD8-C4',
+                            'Tgd','NK'))
+```
+
+###c stack bar plot
+
+```{r}
+cell.ident <- data.frame(orig.ident = se_ob_t$orig.ident,
+                        sample = se_ob_t$condition,
+                        cluster = se_ob_t$cell_types_5,
+                        ann    = se_ob_t$cell_types_5)
+
+plotData <- cell.ident %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3))
+
+ggbarplot(plotData, "orig.ident", "freq",
+          fill = "ann", color = "black", palette = color,
+          label = F, lab.pos = "in")+
+  theme(legend.position = 'right')+
+  rotate_x_text(90)+xlab('')
+```
+
+###d boxplot of cyto/exhau/treg score
+
+```{r}
+plot.data <- se_ob_t@meta.data %>% 
+  filter(cell_types_6 == "CD4") %>% 
+  dplyr::select(.,c('condition','cell_types_5',
+                    'Cytotoxic1','Exhaution1','Naive1','Treg1')) %>% 
+  dplyr::rename(group = cell_types_5,
+                cytotoxic = Cytotoxic1,
+                exhaution = Exhaution1,
+                treg = Treg1,
+                naive = Naive1)
+# plot.data %>% 
+#   filter(str_starts(group,'CD8')) %>% 
+#   select(.,c(-2)) %>% 
+#   my_ecdf(.,score_name = exhaution)
+
+plot.data %>% 
+  group_by(group) %>% 
+  summarise(treg = median(treg)) %>% 
+  arrange(treg) %>% 
+  ggbarplot(x='group',y='treg',
+            fill = 'group',
+            palette = randomcoloR::randomColor(14))+
+  rotate_x_text(40)
+
+plot.data <- plot.data %>%
+  mutate(group2 = str_sub(group,1,3))
+
+p1 <- ggboxplot(plot.data,
+                x= 'condition',
+                y = 'cytotoxic',fill = 'condition',palette = cdt_color,
+                outlier.shape = NA)+
+  facet_wrap(facets = 'group2',scales = 'fixed',nrow = 1)+
+  stat_compare_means(comparisons = list(c('PTC','ATC')),
+                     tip.length =  0,
+                     label.y = 0)
+p2 <- ggboxplot(plot.data,
+                x= 'condition',
+                y = 'exhaution',fill = 'condition',palette = cdt_color,
+                outlier.shape = NA)+
+  facet_wrap(facets = 'group2',scales = 'fixed',nrow = 1)+
+  stat_compare_means(comparisons = list(c('PTC','ATC')),
+                     tip.length =  0,
+                     label.y = 0)
+p3 <- ggboxplot(plot.data,
+                x= 'condition',
+                y = 'treg',fill = 'condition',palette = cdt_color,
+                outlier.shape = NA)+
+  facet_wrap(facets = 'group2',scales = 'fixed',nrow = 1)+
+  stat_compare_means(comparisons = list(c('PTC','ATC')),
+                     tip.length =  0,
+                     label.y = 0)
+cowplot::plot_grid(p1,p2,p3,ncol = 1)
+```
+
+### e/f - ssGSVA
+
+```{r}
+# 单细胞GSVA
+library(Seurat)
+library(msigdbr)
+library(GSVA)
+library(clusterProfiler)
+library(patchwork)
+
+
+# 单细胞数据准备
+scRNA <- subset(se_ob_t,cell_types_6 == 'CD8')
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- NormalizeData(scRNA)
+#Idents设置按什么来取组的表达均值（计算case control之间的均值也可以）
+Idents(scRNA) <- "condition" 
+expr <- AverageExpression(scRNA, assays = "RNA", slot = "data")[[1]]
+expr <- expr[rowSums(expr)>0,]  #选取非零基因
+expr <- as.matrix(expr)
+# 选择基因集
+## geneset1
+genesets <- msigdbr(species = "Homo sapiens", category = "H") 
+genesets <- subset(genesets, select = c("gs_name","gene_symbol")) %>% 
+  as.data.frame() %>% 
+  mutate(gs_name = str_remove(gs_name,'HALLMARK_'))
+seleted_pathway = c('APOPTOSIS','HYPOXIA','EPITHELIAL_MESENCHYMAL_TRANSITION',
+                    'GLYCOLYSIS','ANGIOGENESIS')
+genesets <- genesets %>% dplyr::filter(gs_name %in% seleted_pathway)
+genesets <- split(genesets$gene_symbol, genesets$gs_name)
+
+## geneset2
+genesets2 <- readxl::read_excel('~/Documents/bio-ann-file/2499_Immune_Related_Gene.xlsx') 
+# genesets2$Symbol <- str_to_title(genesets2$Symbol)
+genesets2 <- split(genesets2$Symbol,genesets2$Category)
+genesets2$BCRSignalingPathway = NULL
+# genesets2$TCRsignalingPathway = NULL
+# genesets2$NaturalKiller_Cell_Cytotoxicity = NULL
+
+genesets = c(genesets,genesets2)
+# GSVA富集分析
+gsva.res <- GSVA::gsva(expr, genesets, method="gsva") 
+# gsva.df <- data.frame(Genesets=rownames(gsva.res), gsva.res, check.names = F)
+
+# 可视化
+p_macro = pheatmap::pheatmap(gsva.res, 
+                             show_colnames = T,show_rownames = T,
+                             scale = "none",
+                             cluster_cols=T,
+                             cluster_rows = T,
+                             cellwidth = 15,cellheight = 15,
+                             main = 'CD8'
+                             )
+```
+
+## Fig3
+
+### a ECDF(Empirical Cumulative Distribution Functions)
+
+> An ECDF represents the proportion or count of observations falling below each unique value in a dataset. Compared to a histogram or density plot, it has the advantage that each observation is visualized directly, meaning that there are no binning or smoothing parameters that need to be adjusted. It also aids direct comparisons between multiple distributions. A downside is that the relationship between the appearance of the plot and the basic properties of the distribution (such as its central tendency, variance, and the presence of any bimodality) may not be as intuitive.
+
+```{r}
+source("~/Documents/mytools/my_ecdf.r")
+#### ECDF
+plot.data <- se_ob_t@meta.data %>% 
+  dplyr::select(.,c('condition','cell_types_5',
+                    'Cytotoxic1','Exhaution1','Naive1','Treg1')) %>% 
+  dplyr::rename(group = cell_types_5,
+                cytotoxic = Cytotoxic1,
+                exhaution = Exhaution1,
+                treg = Treg1,
+                naive = Naive1)
+color <- c('#223271','#f78e26', '#f172ad', '#f7afb9','#c63596', '#be86ba', 
+           '#8b66b8', '#4068b2', '#512a93', '#D1724D','#a0fee5')
+
+plot.data %>%
+  filter(str_starts(group,'CD8.*|T.*|NK.*')) %>%
+  select(.,c(-1)) %>%
+  my_ecdf(.,
+          score_name = exhaution,
+          color = color)
+## Barplot
+plot.data2 <- plot.data %>% 
+  filter(str_starts(group,'CD8.*|T.*|NK.*')) %>%
+  group_by(group) %>% 
+  summarise(exhaution = median(exhaution)) %>% 
+  mutate(color = color) %>% 
+  arrange(exhaution)
+
+ggbarplot(plot.data2,x='group',y='exhaution',
+          fill = 'group',color = NA,width = 0.5,
+          palette = plot.data2$color)+
+  rotate_x_text(90)+
+  coord_flip()
+```
+
+### b
+
+```{r}
+se_ob_cd8.t <- subset(se_ob_t,cell_types_6 %in% c('CD8','NK','Tgd'))
+jjDotPlot(object = se_ob_cd8.t,
+          gene = c('Exhaution1','Cytotoxic1','Naive1','G2M.Score','ENTPD1'),
+          ytree = F,
+          rescale = T,
+          rescale.min = 0,
+          rescale.max = 1.5,
+          cluster.order = c("NK","Tgd","CD8-C4","CD8-C5","CD8-C9","CD8-C7",
+                            "CD8-C2","CD8-C3","CD8-C6","CD8-C8","CD8-C1"),
+          id = 'cell_types_5')
+```
+
+### c
+
+```{r}
+
+```
+
+### d Gene boxplot
+
+```{r}
+source("~/Documents/mytools/seurat_vis.r")
+se_ob_tex <- subset(se_ob_t,cell_types_5 %in% c("CD8-C1","CD8-C6","CD8-C8"))
+p1 <- seurat_feature_boxplot(se_ob_tex,feature = c("condition","HAVCR2"))+
+  scale_fill_manual(values = cdt_color)
+p2 <- seurat_feature_boxplot(se_ob_tex,feature = c("condition","LAG3"))+
+  scale_fill_manual(values = cdt_color)
+p3 <- seurat_feature_boxplot(se_ob_tex,feature = c("condition","TIGIT"))+
+  scale_fill_manual(values = cdt_color)
+p4 <- seurat_feature_boxplot(se_ob_tex,feature = c("condition","PDCD1"))+
+  scale_fill_manual(values = cdt_color)
+p6 <- seurat_feature_boxplot(se_ob_tex,feature = c("condition","CTLA4"))+
+  scale_fill_manual(values = cdt_color)
+
+se_ob_cyto <- subset(se_ob_t,cell_types_5 %in% c('CD8-C4',"NK","Tgd","CD8-C2","CD8-C3","CD8-C7"))
+
+p8 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","GNLY"))+
+  scale_fill_manual(values = cdt_color)
+p9 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","IFNG"))+
+  scale_fill_manual(values = cdt_color)
+p10 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","KLRD1"))+
+  scale_fill_manual(values = cdt_color)
+p11 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","PRF1"))+
+  scale_fill_manual(values = cdt_color)
+p12 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","GZMB"))+
+  scale_fill_manual(values = cdt_color)
+p13 <- seurat_feature_boxplot(se_ob_cyto,feature = c("condition","GZMH"))+
+  scale_fill_manual(values = cdt_color)
+cowplot::plot_grid(p1,p2,p3,p4,p6,p8,p9,p10,p11,p12,p13,
+                   nrow = 2)
+```
+
+### e barplot fraction
+
+```{r}
+se_ob_cd8.t <- subset(se_ob_t,cell_types_6 %in% c('CD8','NK','Tgd'))
+cellIdent <- data.frame(orig.ident = se_ob_cd8.t$orig.ident,
+                        sample = se_ob_cd8.t$condition,
+                        cluster = se_ob_cd8.t$cell_types_5)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  filter(!(cluster =="CD8-C9" & Fraction > 0.75)) %>% 
+  filter(!(cluster =="CD8-C1" & Fraction < 0.03)) %>%
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),
+            error.plot = 'errorbar',
+            fill = 'design',
+            width = 0.6,
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  geom_jitter(aes(cluster, Fraction, fill = design), 
+              shape = 20,size=1.5, 
+              color = "black",  
+              position = position_jitterdodge(jitter.width = .2))+
+  stat_compare_means(aes(group = design), 
+                     method = "wilcox.test",
+                     hide.ns = F,
+                     label = "p.signif",
+                     label.y = .55)+
+  rotate_x_text(45)+ggtitle('CD8 & NK')+labs(x='')+
+  theme(axis.text.x  = element_text(size = 12),
+        axis.text.y  = element_text(size = 12),
+        panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),
+        legend.position = 'right')+
+  scale_color_manual(values = c(V = "black", Z = "black"))
+```
+
+### f Bulk Boxplot
+
+```{r}
+expr = read_tsv('../cibersort/GSE33630_exprSet_geneSymobol.txt')
+expr = expr[expr$`Gene Symbol` %in% c('HAVCR2','LAG3','TIGIT','PDCD1','CTLA4'),]
+# expr = expr[expr$`Gene Symbol` %in% c(cyto,'TIGIT'),]
+clinical = read_csv('../cibersort/GSE33630_metadata.csv')
+clinical$`pathological diagnostic:ch1` = str_extract(clinical$`pathological diagnostic:ch1`,'[:upper:]+')
+clinical$`pathological diagnostic:ch1`[is.na(clinical$`pathological diagnostic:ch1`)] = 'Normal'
+clinical$`pathological diagnostic:ch1`= factor(clinical$`pathological diagnostic:ch1`,levels = c('Normal','PTC','ATC'))
+clinical = select(clinical,geo_accession,`pathological diagnostic:ch1`)
+
+plot.data <- expr %>% pivot_longer(-"Gene Symbol",names_to = 'Run',values_to = 'TPM') %>% 
+  left_join(.,clinical,by = c('Run' = 'geo_accession'))
+
+plot.data %>% 
+  filter(`pathological diagnostic:ch1` != 'Normal') %>% 
+  ggboxplot(.,x = "pathological diagnostic:ch1",y = 'TPM',
+            color = 'pathological diagnostic:ch1',
+            palette = cdt_color,
+            outlier.shape = NA)+
+    facet_wrap(~`Gene Symbol`,nrow = 1,scales = 'fixed')+
+    rotate_x_text(90) + 
+    theme(legend.position = 'none',
+          panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),)+
+    labs(colour = "group",x='',title = "GSE33630")+
+    stat_compare_means(comparisons = list(c('ATC','PTC')),
+                       label='p.signif',
+                       label.y = c(7),
+                       tip.length=0,step.increase = 0)
+
+```
+
+## Fig5
+###a
+```{r}
+source("~/Documents/mytools/seurat_help_func.R")
+
+se_ob_b <- seurat_read_rds('./data/PTC_ATC/se_ob_b.rds')
+se_ob_b$condition <- factor(se_ob_b$condition,levels = c("PTC","ATC"))
+
+color <- c("#eab093", "#c49a38", "#c6cdff", "#8ceab2", "#dd1fbe")
+p1 <- DimPlot(se_ob_b,
+        group.by = 'cell_types_6',
+        label = T,label.size = 3,
+        cols = color)+
+  labs(subtitle = 'merge')+
+  theme(legend.position = "none")
+
+p2 <- DimPlot(se_ob_b,
+        group.by = 'cell_types_6',
+        split.by = 'condition',
+        label = T,label.size = 3,
+        cols = color)+
+  theme(legend.position = "none")
+cowplot::plot_grid(p1,p2,rel_widths = c(1,1.8))
+```
+###b
+```{r}
+b_marker = c('CRIP1','IGHM','MS4A1', #B 
+             'SDC1', #plasma
+             'IGHD', 'FCER2', 'TCL1A','IL4R',#naive
+             'CD27', 'AIM2','TNFRSF13B', #memory
+             # 'LRMP', 'SUGCT', 'MME', 'MKI67','AICDA',#GC
+             'STMN1'#,'PCNA' #proliferating
+             
+)
+plasma_marker = c('IGHG1','IGHG2','IGHG3', #IGG
+                  'IGHA1','IGHA2','JCHAIN', #IGA
+                  'MZB1','DERL3','TNFRSF17' #plasma
+)
+jjDotPlot(object = se_ob_b,
+          gene = c(b_marker,plasma_marker),
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_6')
+```
+###c cell fraction
+
+```{r}
+cellIdent <- data.frame(orig.ident = se_ob_b$orig.ident,
+                        sample = se_ob_b$design,
+                        cluster = se_ob_b$main_types)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  filter() %>% 
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),error.plot = 'errorbar',
+            fill = 'design',width = 0.6,
+            order = c('Naive B cells','Memory B cells','Proliferating B cells',
+                      'IgA+ Plasma','IgG+ Plasma'),
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  geom_jitter(aes(cluster, Fraction, fill = design), 
+              shape = 20,size=1.5, 
+              color = "black",  
+              position = position_jitterdodge(jitter.width = .2))+
+  stat_compare_means(aes(group = design), method = "wilcox.test",
+                     label = "p.signif",
+                     hide.ns = F,
+                     label.y = .6)+
+  rotate_x_text(45)+ggtitle('B & Plasma')+labs(x='')+
+  theme(axis.text.x  = element_text(size = 12),
+        axis.text.y  = element_text(size = 12),
+        panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),
+        legend.position = 'right')
+```
+
+### d ssGSEA
+```{r}
+# 单细胞GSVA
+library(Seurat)
+library(msigdbr)
+library(GSVA)
+library(clusterProfiler)
+library(patchwork)
+
+
+# 单细胞数据准备
+scRNA <- subset(se_ob_b,)
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- NormalizeData(scRNA)
+#Idents设置按什么来取组的表达均值（计算case control之间的均值也可以）
+Idents(scRNA) <- "design" 
+expr <- AverageExpression(scRNA, assays = "RNA", slot = "data")[[1]]
+expr <- expr[rowSums(expr)>0,]  #选取非零基因
+expr <- as.matrix(expr)
+# 选择基因集
+## geneset1
+genesets <- msigdbr::msigdbr(species = "Homo sapiens", category = "H") 
+genesets <- subset(genesets, select = c("gs_name","gene_symbol")) %>% 
+  as.data.frame() %>% 
+  mutate(gs_name = str_remove(gs_name,'HALLMARK_'))
+seleted_pathway = c('APOPTOSIS','HYPOXIA','EPITHELIAL_MESENCHYMAL_TRANSITION',
+                    'GLYCOLYSIS','ANGIOGENESIS',
+                    'INFLAMMATORY_RESPONSE','TNFA_SIGNALING_VIA_NFKB',"TGF_BETA_SIGNALING",
+                    'INTERFERON_ALPHA_RESPONSE',"INTERFERON_GAMMA_RESPONSE",
+                    "OXIDATIVE_PHOSPHORYLATION")
+genesets <- genesets %>% dplyr::filter(gs_name %in% seleted_pathway)
+genesets <- split(genesets$gene_symbol, genesets$gs_name)
+
+## geneset2
+genesets2 <- readxl::read_excel('~/Documents/bio-ann-file/2499_Immune_Related_Gene.xlsx') 
+# genesets2$Symbol <- str_to_title(genesets2$Symbol)
+genesets2 <- split(genesets2$Symbol,genesets2$Category)
+# genesets2$BCRSignalingPathway = NULL
+genesets2$TCRsignalingPathway = NULL
+genesets2$NaturalKiller_Cell_Cytotoxicity = NULL
+
+genesets = c(genesets,genesets2)
+# GSVA富集分析
+gsva.res <- GSVA::gsva(expr, genesets, method="gsva") 
+# gsva.df <- data.frame(Genesets=rownames(gsva.res), gsva.res, check.names = F)
+
+# 可视化
+p_macro = pheatmap::pheatmap(gsva.res,
+                             show_colnames = T,show_rownames = T,
+                             scale = "none",
+                             cluster_cols=T,
+                             cluster_rows = T,
+                             cellwidth = 15,cellheight = 15,
+                             main = 'Naive B cells'
+                             )
+```
+
+### e IgA/IgG boxplot
+
+```{r}
+cellIdent <- data.frame(orig.ident = se_ob_b$orig.ident,
+                        sample = se_ob_b$design,
+                        cluster = se_ob_b$main_types)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data$`IgG/IgA` = plot.data$`IgG+ Plasma`/(plot.data$`IgA+ Plasma`+1)
+ggboxplot(plot.data,x='design',y='`IgG/IgA`',
+          add = 'dotplot',
+          order = c('PTC','ATC'),
+          color = 'design',
+          width = 0.5,
+          palette = c("#E7B800", "#FC4E07"))+
+  xlab(NULL)+
+  scale_x_discrete(labels = c('PTC','ATC'))+
+  stat_compare_means(aes(group = design), method = "wilcox.test",
+                     hide.ns = F,label.y = .6)
+```
+
+### f
+```{r}
+clinical = read_csv('../cibersort/GSE33630_metadata.csv')
+clinical$`pathological diagnostic:ch1` = str_extract(clinical$`pathological diagnostic:ch1`,'[:upper:]+')
+clinical$`pathological diagnostic:ch1`[is.na(clinical$`pathological diagnostic:ch1`)] = 'Normal'
+clinical$`pathological diagnostic:ch1`= factor(clinical$`pathological diagnostic:ch1`,levels = c('Normal','PTC','ATC'))
+clinical = select(clinical,geo_accession,`pathological diagnostic:ch1`) %>% rename(group = `pathological diagnostic:ch1`)
+
+cell_frac <- read_tsv('../cibersort/GSE33630_cell_frac.txt')
+
+
+plot.data <- inner_join(cell_frac,clinical,
+                        by = c('ID' = 'geo_accession')) %>% 
+  filter(`P-value`<0.05 & group !='Normal')
+
+ggboxplot(plot.data,
+          x='group',y = "B cells naive",
+          add = 'dotplot',
+          order = c('Normal','PTC','ATC'),
+          color = 'group',
+          width = 0.5,outlier.shape = NA,
+          palette = c("#E7B800", "#FC4E07"))+
+  xlab(NULL)+
+  # theme(panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1))+
+  scale_x_discrete(labels = c('PTC','ATC'))+
+  stat_compare_means(comparisons = list(c("PTC","ATC")), method = "wilcox.test",
+                     hide.ns = F,label.y = .2)
+```
+
+## Fig6
+### a Dimplot
+```{r}
+condition_col = c('#F9AE7D','#BE1E2D')
+ann_col = c('#D55740','#7C9EAB','#55AAAD','#3F8A86')
+my_combine <- readRDS("./data/PTC_ATC/myeloid.rds")
+my_combine <- subset(my_combine,design != "ParaNormal")
+
+p1 = DimPlot(my_combine, 
+             reduction = "umap", 
+             group.by = "cell_types", 
+             pt.size = .5,
+             cols = get_palette("npg", 13),
+             label = T)+
+  labs(subtitle = 'Merge')+
+  NoLegend()+
+  labs(x = 'UMAP1',y="UMAP2")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+p2 = DimPlot(my_combine, 
+             reduction = "umap", 
+             group.by = "cell_types", 
+             split.by = 'design',
+             pt.size = .5,
+             cols = get_palette("npg", 13),
+             label = T)+
+  NoLegend()+
+  labs(x = 'UMAP1',y="UMAP2")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+plot_grid(p1,p2,rel_widths = c(1,1.8))
+```
+
+### b jjDot
+```{r}
+my_combine$ordered_clusters = factor(my_combine$seurat_clusters,c(0,1,5,6,12,2,9,3,4,10,11,7,8))
+jjDotPlot(object = my_combine,
+          gene = c('CD1E','CD1C','LAMP3','S100A12','VCAN','TNF','IL23A','CD163','MRC1'),
+          ytree = F,
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'ordered_clusters')
+```
+
+### c ssGSEA
+
+```{r}
+library(GSVA)
+# 单细胞数据准备
+scRNA <- my_combine
+scRNA <- subset(scRNA,cell_types %in% c('M2'))
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- NormalizeData(scRNA)
+#Idents设置按什么来取组的表达均值（计算case control之间的均值也可以）
+Idents(scRNA) <- "design" 
+expr <- AverageExpression(scRNA, assays = "RNA", slot = "data")[[1]]
+expr <- expr[rowSums(expr)>0,]  #选取非零基因
+expr <- as.matrix(expr)
+# 选择基因集
+## geneset1
+genesets <- msigdbr::msigdbr(species = "Homo sapiens", category = "H") 
+genesets <- subset(genesets, select = c("gs_name","gene_symbol")) %>% 
+  as.data.frame() %>% 
+  mutate(gs_name = str_remove(gs_name,'HALLMARK_'))
+seleted_pathway = c('APOPTOSIS','HYPOXIA','EPITHELIAL_MESENCHYMAL_TRANSITION',
+                    'GLYCOLYSIS','ANGIOGENESIS')
+genesets <- genesets %>% dplyr::filter(gs_name %in% seleted_pathway)
+genesets <- split(genesets$gene_symbol, genesets$gs_name)
+
+## geneset2
+genesets2 <- readxl::read_excel('~/Documents/bio-ann-file/2499_Immune_Related_Gene.xlsx') 
+genesets2 <- split(genesets2$Symbol,genesets2$Category)
+genesets2$BCRSignalingPathway = NULL
+genesets2$TCRsignalingPathway = NULL
+genesets2$NaturalKiller_Cell_Cytotoxicity = NULL
+
+genesets = c(genesets,genesets2)
+# GSVA富集分析
+gsva.res <- gsva(expr, genesets, method="ssgsea") 
+rownames(gsva.res) <- str_to_title(rownames(gsva.res))
+# gsva.df <- data.frame(Genesets=rownames(gsva.res), gsva.res, check.names = F)
+
+# 可视化
+p_macro = pheatmap::pheatmap(gsva.res, 
+                             show_colnames = T,
+                             scale = "row",
+                             cluster_cols=F,
+                             cellwidth = 15,cellheight = 15,
+                             main = 'M2',
+                             labels_col = c('PTC','ATC'))
+
+```
+
+### d APP(antigen prosessing and presentation) Gene
+
+```{r}
+D_A_gene = c('SHFM1','HLA-DMA','CD1E','CD74')
+my_combine %>% subset(cell_types == 'DC') %>% 
+  VlnPlot(.,features = D_A_gene,
+          group.by = 'cell_types',
+          split.by = 'design',
+          split.plot = T,
+          # stack = T,flip = T,
+          cols = condition_col,
+          pt.size = 0,
+          ncol = 2)
+```
+
+### e IDO1
+```{r}
+my_combine %>% 
+  subset(seurat_clusters %in% c(7,8)) %>% 
+  VlnPlot(.,features = 'IDO1',split.plot = T,
+          split.by = 'design',
+          cols = condition_col)+
+  # scale_x_discrete(NULL, 
+  #                  labels = c('DC-C1','DC-C2'))+
+  rotate_x_text(0,hjust = 0.5)
+```
+
+### f cell fraction
+```{r}
+cellIdent <- data.frame(orig.ident = my_combine$orig.ident,
+                        sample = my_combine$design,
+                        cluster = my_combine$cell_types)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),
+            error.plot = 'errorbar',
+            fill = 'design',
+            width = 0.6,
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  geom_jitter(aes(cluster, Fraction, fill = design), 
+              shape = 20,size=1.5, 
+              color = "black",  
+              position = position_jitterdodge(jitter.width = .2))+
+  stat_compare_means(aes(group = design), 
+                     method = "wilcox.test",
+                     hide.ns = F,
+                     label = "p.signif",
+                     label.y = .55)+
+  rotate_x_text(45)+ggtitle('Immune cells')+labs(x='')+
+  theme(axis.text.x  = element_text(size = 12),
+        axis.text.y  = element_text(size = 12),
+        panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),
+        legend.position = 'right')+
+  scale_color_manual(values = c(V = "black", Z = "black"))
+```
+
+###g 
+```{r}
+jjDotPlot(object = my_combine,
+          gene = c('DC1',
+                   'Monocyte.signature1',
+                   'M1.signature1',
+                   'M2.siganture1'),
+          ytree = F,
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'ordered_clusters')+coord_flip()
+```
+
+## FigS1
+### a Dimplot
+```{r}
+source('~/Documents/mytools/seurat_help_func.R')
+se_ob <- seurat_read_rds("./data/PTC_ATC/se_ob_origin.rds",scale = "part")
+
+####
+col = c("#ffc9d3", "#ffccd4", "#f2aa96", "#ed6f8e", "#f9b6ce", "#ff9d9b",
+        "#ffc2bc", "#f28e9f", "#ffd6cc", "#ed7d93", "#f78fb2", "#ffccd7",
+        "#c4fbff", "#7ad3f9", "#9feaf4", "#97f285", "#6ded8f", "#b6ff7a",
+        "#9ef492", "#b0fc8f", "#b0f79e")
+
+p1 <- DimPlot(se_ob,
+        group.by = 'cell_types_2',
+        label = T,label.size = 4,
+        cols = col)+
+  labs(subtitle = 'Merge')+
+  theme(legend.position = "none")
+
+p2 <- DimPlot(se_ob,
+        group.by = 'cell_types_2',
+        split.by = 'condition',
+        label = T,label.size = 4,
+        cols = col)+
+  theme(legend.position = "none")
+cowplot::plot_grid(p1,p2,rel_widths = c(1,1.8))
+```
+
+### b jjDot
+```{r}
+# immune cells 
+imm_gene = c("PTPRC",'CD3D',"CD79A")
+# stromal cells 
+fibo = c('MME','ACTA2')
+en = c('PECAM1')
+# epithelial cells 
+ep = c('EPCAM')
+thyroid = c('TG','TSHR','TPO','KRT19','FN1','CITED1')
+genes_to_check = c(imm_gene,ep,thyroid,fibo,en)
+
+jjDotPlot(object = se_ob,
+          gene = genes_to_check,
+          ytree = F,
+          rescale = T,
+          rescale.min = 0, 
+          rescale.max = 1,
+          id = 'cell_types_2')
+```
+
+### c 
+```{r}
+####
+cell.ident <- data.frame(orig.ident = se_ob$orig.ident,
+                        sample = se_ob$condition,
+                        cluster = se_ob$seurat_clusters,
+                        ann    = se_ob$cell_types_1)
+
+plotData <- cell.ident %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3))
+library(ggpubr)
+ggbarplot(plotData, "orig.ident", "freq",
+          fill = "ann", color = "ann", palette = "aaas",
+          label = F, lab.pos = "in")+
+  theme(legend.position = 'right')+
+  rotate_x_text(90)+xlab('')
+```
+
+###d cell fraction
+```{r}
+cellIdent <- data.frame(orig.ident = se_ob_imm$orig.ident,
+                        sample = se_ob_imm$condition,
+                        cluster = se_ob_imm$cell_types_3)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),
+            error.plot = 'errorbar',
+            fill = 'design',
+            width = 0.6,
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  geom_jitter(aes(cluster, Fraction, fill = design), 
+              shape = 20,size=1.5, 
+              color = "black",  
+              position = position_jitterdodge(jitter.width = .2))+
+  stat_compare_means(aes(group = design), 
+                     method = "wilcox.test",
+                     hide.ns = F,
+                     label = "p.signif",
+                     label.y = .55)+
+  rotate_x_text(45)+ggtitle('Immune cells')+labs(x='')+
+  theme(axis.text.x  = element_text(size = 12),
+        axis.text.y  = element_text(size = 12),
+        panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),
+        legend.position = 'right')+
+  scale_color_manual(values = c(V = "black", Z = "black"))
+```
+## FigS2 
+### a PCA
+```{r}
+cellIdent <- data.frame(sample = se_ob_t$orig.ident,
+                        cluster = se_ob_t$cell_types_5)
+plot_data <- cellIdent %>% 
+  group_by(sample,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(sample) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  select(-count) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+plot_data$sample = str_remove(plot_data$sample,'\\d')
+plot_data$sample = ifelse(plot_data$sample=='ParaNormal','nThyroid',plot_data$sample)
+plot_data$sample = factor(plot_data$sample,levels = c('nThyroid','PTC','ATC'))
+res.pca <- FactoMineR::PCA(plot_data[,2:ncol(plot_data)], graph = FALSE)
+
+factoextra::fviz_pca_ind(res.pca,
+             geom.ind = "point", # show points only (nbut not "text")
+             col.ind = plot_data$sample, # color by groups
+             palette = c('#F9AE7D','#BE1E2D'),
+             addEllipses = TRUE, # Concentration ellipses
+             legend.title = "Groups",  pointsize = 3,alpha.ind = 1)
+```
+
+###b ggpie
+```{r}
+plot.data <- se_ob_t@meta.data %>% 
+  mutate(cell_types_6 = factor(cell_types_6,levels = c("CD8","CD4","Tgd","NK")))
+p1 <-  plot.data %>% 
+  filter(condition == "PTC") %>% 
+  ggpie::ggrosepie(., 
+                   group_key = "cell_types_6", 
+                   count_type = "full", 
+                   label_info = "all",sort = F,
+            show_tick=F,donut_frac=0.3,donut_label_size=3)+
+  labs(title = 'PTC')
+
+p2 <- plot.data %>% 
+  filter(condition == "ATC") %>% 
+  ggpie::ggrosepie(., 
+                   group_key = "cell_types_6", 
+                   count_type = "full", 
+                   label_info = "all",sort = F,
+            show_tick=F,donut_frac=0.3,donut_label_size=3)+
+  labs(title = 'ATC')
+(p1|p2)+plot_layout(guides = 'collect')
+```
+
+### c
+```{r}
+cellIdent <- data.frame(orig.ident = se_ob_t$orig.ident,
+                        sample = se_ob_t$condition,
+                        cluster = se_ob_t$cell_types_5)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  filter() %>% 
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),error.plot = 'errorbar',
+            fill = 'design',width = 0.6,
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  stat_compare_means(aes(group = design), method = "wilcox.test",
+                     label = "p.signif",hide.ns = F,label.y = .6)+
+  rotate_x_text(45)+ggtitle('B & Plasma')+labs(x='')+
+  theme(axis.text.x  = element_text(size = 12),
+        axis.text.y  = element_text(size = 12),
+        panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1),
+        legend.position = 'right')
+```
+
+## FigS4
+## b
+```{r}
+ann_col = c('#D55740','#7C9EAB','#55AAAD','#3F8A86')
+my_combine <- readRDS("./data/PTC_ATC/myeloid.rds")
+cellIdent <- data.frame(orig.ident = my_combine$orig.ident,
+                        sample = my_combine$design,
+                        cluster = my_combine$seurat_clusters,
+                        ann = my_combine$cell_types)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design = str_remove(orig.ident,'\\d'))
+
+p4 <-ggbarplot(plot.data, "orig.ident", "freq",
+          order = c(str_c('PTC',1:7),str_c('ATC',1:5)),
+          fill = "ann", color = "ann",
+          label = F, lab.pos = "in",
+          palette = ann_col
+          )+
+  rotate_x_text(90)+
+  theme(legend.position = 'right')+
+  xlab('')+
+  scale_x_discrete(labels = c(str_c('PTC',1:7,'  '),str_c('ATC',1:5,'  ')))+
+  theme(panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1))
+p4
+```
+
+## 
+```{r}
+cellIdent <- data.frame(orig.ident = my_combine$orig.ident,
+                        sample = my_combine$design,
+                        cluster = my_combine$seurat_clusters)
+
+plot.data <- cellIdent %>% 
+  group_by(orig.ident,cluster) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  mutate(design=str_remove_all(orig.ident,'\\d')) %>% 
+  select(orig.ident,design,cluster,freq) %>% 
+  pivot_wider(names_from = cluster,values_from = freq,values_fill = 0)
+
+plot.data = plot.data[,2:ncol(plot.data)]
+plot.data = pivot_longer(plot.data,cols = 2:ncol(plot.data),
+                         names_to = 'cluster',
+                         values_to = 'Fraction')
+
+# plot.data$cluster = factor(plot.data$cluster,levels = c(0:11))
+plot.data$design = factor(plot.data$design,levels = c('PTC','ATC'))
+
+plot.data %>% 
+  ggbarplot(.,x = 'cluster',y = 'Fraction',size = 0.,
+            add = c('mean_se'),
+            error.plot = 'errorbar',
+            fill = 'design',
+            width = 0.6,
+            order = c(0:12),
+            position = position_dodge(0.75),
+            palette = c('#F9AE7D','#BE1E2D'),label = F)+
+  geom_jitter(aes(cluster, Fraction, fill = design), 
+              shape = 20,size=1.5, 
+              color = "black",  
+              position = position_jitterdodge(jitter.width = .2))+
+  stat_compare_means(aes(group = design), 
+                     method = "wilcox.test",
+                     hide.ns = F,
+                     label = "p.signif",
+                     label.y = .4)+
+  rotate_x_text(0)+ggtitle('Myeloid')+labs(x='')+
+  scale_color_manual(values = c(V = "black", Z = "black"))
+```
