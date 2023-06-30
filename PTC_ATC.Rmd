@@ -1,0 +1,1337 @@
+---
+title: "TIME of PTC and ATC"
+author: "fengchao"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = F,root.dir = '~/Desktop/thyroid/thyroid-srna-seq/')
+```
+
+## Some preparation
+
+### Set color
+
+```{r}
+condition_col = c('#009245','#F9AE7D','#BE1E2D')
+```
+
+### Load package
+
+```{r}
+library(Seurat)
+library(ggpubr)
+```
+
+### Load data
+
+#### Load NBT
+
+```{r}
+source('./code/utils.R')
+files = list.files('./raw/scRNA-seq/NBT/')
+files = files[grep('.*ATC.*',files)]
+
+for (file in files) {
+  ID = str_extract(file,'ATC\\d+')
+  print(ID)
+  tmp = load_NBT_data(str_c('./raw/scRNA-seq/NBT/',file),ID)
+  assign(ID,tmp)
+  
+}
+
+```
+
+#### Load NC
+
+```{r}
+clinical <- read_tsv('./raw/scRNA-seq/NC/meta.tsv',col_names = F)
+colnames(clinical) = c('GSM','type')
+PTC_clinical = clinical %>% 
+  filter(str_detect(type,' tumor'))
+rm(clinical)
+print(PTC_clinical$GSM)
+PTC_clinical$myID <- str_c('PTC',1:7)
+
+dirs = str_c('./raw/scRNA-seq/NC/',PTC_clinical$GSM)
+
+for (i in 1:length(dirs)) {
+  file = dirs[i]
+  gsm_num = PTC_clinical$myID[i]
+  print(file)
+  seurat_object <- CreateSeuratObject(Read10X(data.dir = file),
+                                      project = gsm_num)
+  
+  seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object,
+                                                        pattern = "^MT-")
+  
+  seurat_object[["percent.rp"]] <- PercentageFeatureSet(seurat_object,
+                                                        pattern = "^RP[SL]")
+  seurat_object <- subset(seurat_object, 
+                          subset = nFeature_RNA > 300 & 
+                            nFeature_RNA < 2000 & 
+                            percent.mt < 10 & percent.rp < 40)
+  assign(gsm_num,seurat_object)
+}
+
+rm(seurat_object,file,gsm_num)
+```
+
+### All cells
+
+#### Merge
+
+```{r}
+se_ob <- merge(x =PTC1,
+               y = c(PTC2,PTC3,PTC4,PTC5,PTC6,PTC7,ATC1,ATC2,ATC3,ATC4,ATC5),
+               add.cell.ids = c(str_c('PTC',1:7),
+                                str_c('ATC',1:5)),
+               project = "PTC.ATC")
+saveRDS(se_ob,file = '')
+```
+
+#### Workflow
+
+```{r}
+# Workflow ----
+se_ob <- Seurat::NormalizeData(se_ob, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob)
+se_ob <- ScaleData(se_ob)
+
+se_ob <- RunPCA(se_ob,
+                   features = VariableFeatures(object = se_ob))
+
+DimPlot(se_ob, reduction = "pca")
+ElbowPlot(se_ob)
+VlnPlot(object = se_ob, features = "PC_1", group.by = "orig.ident", pt.size = .1)
+
+library(harmony)
+# Remove batch effect ----
+se_ob <- se_ob %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob, reduction = "harmony")
+p2 = ElbowPlot(se_ob,reduction = "harmony",ndims = 30)
+p3 = VlnPlot(object = se_ob, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob <- RunUMAP(se_ob, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob <- FindClusters(se_ob, 
+                      resolution = 0.8) 
+```
+
+#### Del Doublet
+
+```{r}
+source('~/Documents/mytools/seurat_help_func.R')
+se_ob_list <- SplitObject(se_ob, split.by = "orig.ident")
+se_ob_list <- lapply(se_ob_list,seurat_workflow)
+
+se_ob <- scCustomize::Merge_Seurat_List(se_ob_list,
+                                        project = 'PTC.ATC')
+se_ob <- subset(se_ob,DF.classifications != 'Doublet')
+```
+
+#### QC and Ribosomal gene
+
+```{r}
+
+se_ob_list <- SplitObject(se_ob, split.by = "orig.ident")
+se_ob <- scCustomize::Merge_Seurat_List(se_ob_list,
+                                        project = 'PTC.ATC')
+rm(se_ob_list)
+gc()
+
+se_ob@meta.data$condition = str_sub(se_ob$orig.ident,1,3)
+se_ob[["percent.mt"]] <- PercentageFeatureSet(se_ob,
+                                              pattern = "^MT-")
+
+se_ob[["percent.rp"]] <- PercentageFeatureSet(se_ob,
+                                              pattern = "^RP[SL]")
+
+VlnPlot(se_ob, 
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+        ncol = 4,
+        pt.size = 0.,
+        group.by = 'orig.ident')
+
+# Filter out low quality cells ----
+se_ob <- subset(se_ob, 
+                subset = nFeature_RNA > 300 & nFeature_RNA < 7000 & percent.mt < 10)
+```
+
+#### Workflow after Del doublet
+
+```{r}
+# Workflow ----
+se_ob <- Seurat::NormalizeData(se_ob, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob)
+se_ob <- ScaleData(se_ob)
+
+se_ob <- RunPCA(se_ob,
+                   features = VariableFeatures(object = se_ob))
+
+ElbowPlot(se_ob,ndims = 50)
+
+library(harmony)
+# Remove batch effect ----
+se_ob <- se_ob %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob, reduction = "harmony")
+p2 = ElbowPlot(se_ob,reduction = "harmony",ndims = 40)
+p3 = VlnPlot(object = se_ob, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob <- RunUMAP(se_ob, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob <- FindClusters(se_ob, 
+                      resolution = c(0.2, 0.4, 0.6,
+                                     0.8, 1.0, 1.2)) 
+```
+
+#### Dimplot
+
+```{r}
+DimPlot(se_ob,group.by = 'RNA_snn_res.1',label = T) 
+```
+
+#### Marker Gene
+
+```{r}
+# immune cells 
+imm_gene = c("PTPRC",'CD3D',"CD79A")
+# stromal cells 
+fibo = c('MME','ACTA2')
+en = c('PECAM1')
+# epithelial cells 
+ep = c('EPCAM')
+thyroid = c('TG','TSHR','TPO','KRT19','FN1','CITED1')
+genes_to_check = c(imm_gene,ep,thyroid,fibo,en)
+
+library(scRNAtoolVis)
+
+jjDotPlot(object = se_ob,
+          gene = genes_to_check,
+          ytree = T,
+          rescale = T,
+          rescale.min = 0, 
+          rescale.max = 1,
+          id = 'RNA_snn_res.0.6')
+```
+
+#### Annotation
+
+```{r}
+imm = c(2,3,4,5,6,7,8,9,16,17,19,22)
+ep = c(0,10,12,13,15)
+stro = c(1,11,14,18,20,21)
+cell_map <- tibble(seurat_clusters = c(imm,ep,stro),
+                   main_type = c(rep('immune',length(imm)),
+                                 rep('epithelial',length(ep)),
+                                 rep('stromal',length(stro))))
+cell_map <- cell_map %>% 
+  arrange(seurat_clusters)
+
+cluster_letters <- cell_map$main_type[Idents(object = se_ob)]
+se_ob <- AddMetaData(
+  object = se_ob,
+  metadata = cluster_letters,
+  col.name = 'cell_types_1')
+DimPlot(se_ob,group.by = 'cell_types_1')
+```
+
+#### Del Some Clusters
+
+> 10,23,25,26 looks like doublet
+
+```{r}
+se_ob <- subset(se_ob,RNA_snn_res.0.6 %in% c(0,1,2,3,4,5,6,7,8,9,
+                                             11,12,14,15,16,17,18,19,20,
+                                             21,22))
+# re-run the workflow
+source('~/Documents/mytools/seurat_help_func.R')
+```
+
+#### Re-order Clusters
+
+```{r}
+se_ob$re_order_cluster_0.6 <- factor(se_ob$RNA_snn_res.0.6,
+                                     levels = c(2,3,4,5,6,7,8,9,16,17,19,22,
+                                                0,10,12,13,15,
+                                                1,11,14,18,20,21))
+cell_types <- c(str_c('immune-C',1:length(c(2,3,4,5,6,7,8,9,16,17,19,22))),
+                str_c('epithelial-C',1:length(c(0,12,15))),
+                str_c('stromal-C',1:length(c(1,11,14,18,20,21))))
+cluster_letters <- cell_types[factor(as.character(se_ob$re_order_cluster_0.6),
+                                     levels = c(2,3,4,5,6,7,8,9,16,17,19,22,
+                                                0,12,15,
+                                                1,11,14,18,20,21))]
+cluster_letters <- factor(cluster_letters,
+                          levels = cell_types)
+se_ob <- AddMetaData(
+  object = se_ob,
+  metadata = cluster_letters,
+  col.name = 'cell_types_2')
+```
+
+#### Fig S1
+
+```{r}
+####
+col = c("#ffc9d3", "#ffccd4", "#f2aa96", "#ed6f8e", "#f9b6ce", "#ff9d9b",
+        "#ffc2bc", "#f28e9f", "#ffd6cc", "#ed7d93", "#f78fb2", "#ffccd7",
+        "#c4fbff", "#7ad3f9", "#9feaf4", "#97f285", "#6ded8f", "#b6ff7a",
+        "#9ef492", "#b0fc8f", "#b0f79e")
+DimPlot(se_ob,
+        group.by = 'cell_types_2',
+        cols = col,
+        label = T,
+        label.size = 3)
+####
+jjDotPlot(object = se_ob,
+          gene = genes_to_check,
+          ytree = F,
+          rescale = T,
+          rescale.min = 0, 
+          rescale.max = 1,
+          id = 'cell_types_2')
+####
+col = c(randomcoloR::distinctColorPalette(5),
+        randomcoloR::distinctColorPalette(7))
+DimPlot(se_ob,
+        group.by = 'orig.ident',
+        cols = col,
+        label = F,
+        label.size = 3)
+####
+cell.ident <- data.frame(orig.ident = se_ob$orig.ident,
+                        sample = se_ob$condition,
+                        cluster = se_ob$seurat_clusters,
+                        ann    = se_ob$cell_types_1)
+
+plotData <- cell.ident %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3))
+library(ggpubr)
+ggbarplot(plotData, "orig.ident", "freq",
+          fill = "ann", color = "ann", palette = "aaas",
+          label = F, lab.pos = "in")+
+  theme(legend.position = 'right')+
+  rotate_x_text(90)+xlab('')
+```
+
+### Immune
+
+#### Subset Immune Cells
+
+```{r}
+se_ob_imm <- subset(se_ob,cell_types_1 == 'immune')
+```
+
+#### Workflow
+
+```{r}
+# Workflow ----
+se_ob_imm <- Seurat::NormalizeData(se_ob_imm, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob_imm)
+se_ob_imm <- ScaleData(se_ob_imm)
+
+se_ob_imm <- RunPCA(se_ob_imm,
+                   features = VariableFeatures(object = se_ob_imm))
+
+DimPlot(se_ob_imm, reduction = "pca")
+ElbowPlot(se_ob_imm,ndims = 50)
+VlnPlot(object = se_ob_imm, features = "PC_1", group.by = "orig.ident", pt.size = .1)
+
+library(harmony)
+# Remove batch effect ----
+se_ob_imm <- se_ob_imm %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob_imm, reduction = "harmony")
+p2 = ElbowPlot(se_ob_imm,reduction = "harmony",ndims = 30)
+p3 = VlnPlot(object = se_ob_imm, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob_imm <- RunUMAP(se_ob_imm, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob_imm <- FindClusters(se_ob_imm, 
+                      resolution = c(0.2, 0.4, 0.6,
+                                     0.8, 1.0, 1.2)) 
+```
+
+#### Annotation Marker Gene
+
+```{r}
+nk.marker <- c('NKG7','GNLY','KLRD1','KLRF1')
+t.marker <- c('CD3D','CD8A','CD4','CD247')
+b.marker <- c('CD79A', 'MS4A1', 'IGKC', 'IGHG1', 'MZB1')
+macphage.marker <- c('CD68','CD14', 'FCGR3A', 'LYZ', 'S100A8', 'S100A9','CD163')
+dc.marker <- c('HLA-DRA', 'HLA-DRB1')
+
+imm.makrer <- c(nk.marker,t.marker,b.marker,macphage.marker,dc.marker)
+
+DimPlot(se_ob_imm,
+        group.by = 'RNA_snn_res.1.2',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+
+jjDotPlot(object = se_ob_imm,
+          gene = imm.makrer,
+          xtree = F,
+          ytree = T, 
+          # rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'RNA_snn_res.1.2')
+```
+
+#### Annotation Cell Type
+
+```{r}
+nk = c(8)
+t = c(0,1,3,4,5,6,15,16,17,19,21)
+myeloid = c(2,7,9,11,13,20,22)
+b = c(10,12,14,18,23) 
+
+cell_map = data.frame(clusters     = c(nk,t,myeloid,b),
+                      
+                      cell_types_3 = c(rep('NK',length(nk)),
+                                       rep('T',length(t)),
+                                       rep('Myeloid',length(myeloid)),
+                                       rep('B',length(b))),
+                      
+                      cell_types_4 = c(str_c('NK-C',1:length(nk)),
+                                       str_c('T-C',1:length(t)),
+                                       str_c('Myeloid-C',1:length(myeloid)),
+                                       str_c('B-C',1:length(b))),
+                      my_cluster   = c(0,1,2,3,4,5,6,7,8,9,10,
+                                       11,12,13,14,15,1,1,18,0,7,
+                                       1,2,12))
+
+cell_map <- cell_map %>% 
+  arrange(clusters)
+
+cluster_letters <- cell_map$cell_types_3[se_ob_imm$RNA_snn_res.1.2]
+
+cluster_letters <- factor(cluster_letters,
+                          levels = c('NK','T','Myeloid','B'))
+
+se_ob_imm <- AddMetaData(
+  object = se_ob_imm,
+  metadata = cluster_letters,
+  col.name = 'cell_types_3')
+
+cluster_letters <- cell_map$cell_types_4[se_ob_imm$RNA_snn_res.1.2]
+
+cluster_letters <- factor(cluster_letters,
+                          levels = c(str_c('NK-C',1:length(nk)),
+                                     str_c('T-C',1:length(t)),
+                                     str_c('Myeloid-C',1:length(myeloid)),
+                                     str_c('B-C',1:length(b))))
+
+se_ob_imm <- AddMetaData(
+  object = se_ob_imm,
+  metadata = cluster_letters,
+  col.name = 'cell_types_4')
+
+DimPlot(se_ob_imm,
+        group.by = 'cell_types_3')
+
+DimPlot(se_ob_imm,
+        group.by = 'cell_types_4',
+        cols = randomcoloR::randomColor(24),
+        label = T,label.size = 3)
+####
+col = c(randomcoloR::randomColor(5),
+        randomcoloR::randomColor(7))
+DimPlot(se_ob_imm,
+        group.by = 'orig.ident',
+        cols = col,
+        label = F,
+        label.size = 3)
+```
+
+#### Fig
+
+```{r}
+####
+cell.ident <- data.frame(orig.ident = se_ob_imm$orig.ident,
+                        sample = se_ob_imm$condition,
+                        cluster = se_ob_imm$seurat_clusters,
+                        ann    = se_ob_imm$cell_types_3)
+
+plot.data <- cell.ident %>% 
+  group_by(orig.ident,ann) %>% 
+  summarise(count = n()) %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3))
+library(ggpubr)
+ggbarplot(plot.data, "orig.ident", "freq",
+          fill = "ann", color = "ann", palette = "aaas",
+          label = F, lab.pos = "in")+
+  theme(legend.position = 'right')+
+  rotate_x_text(90)+xlab('')
+```
+
+### T & NK cells
+
+#### Subset T & NK cells
+
+```{r}
+se_ob_t <- subset(se_ob_imm,cell_types_3 %in% c('NK','T'))
+source('~/Documents/mytools/seurat_help_func.R')
+```
+
+#### Workflow
+
+```{r}
+# Workflow ----
+se_ob_t <- Seurat::NormalizeData(se_ob_t, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob_t)
+se_ob_t <- ScaleData(se_ob_t)
+
+se_ob_t <- RunPCA(se_ob_t,
+                   features = VariableFeatures(object = se_ob_t))
+
+DimPlot(se_ob_t, reduction = "pca")
+ElbowPlot(se_ob_t,ndims = 50)
+VlnPlot(object = se_ob_t, features = "PC_1", group.by = "orig.ident", pt.size = .1)
+
+library(harmony)
+# Remove batch effect ----
+se_ob_t <- se_ob_t %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob_t, reduction = "harmony")
+p2 = ElbowPlot(se_ob_t,reduction = "harmony",ndims = 30)
+p3 = VlnPlot(object = se_ob_t, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob_t <- RunUMAP(se_ob_t, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob_t <- FindClusters(se_ob_t, 
+                      resolution = c(0.2, 0.4, 0.6,
+                                     0.8, 1.0, 1.2)) 
+```
+
+#### Annotation Marker Gene
+
+```{r}
+markers = c('CD4','CD8A',
+            'IL2RA','FOXP3','CTLA4',
+            'HAVCR2','LAG3','PDCD1','TIGIT',
+            'GZMB','GNLY','IFNG','KLRD1',
+            'SELL','CCR7','TCF7','LEF1',
+            'TRGV5')
+
+jjDotPlot(object = se_ob_t,
+          gene = markers,
+          xtree = F,
+          ytree = T, 
+          # rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'RNA_snn_res.1.2')
+
+DimPlot(se_ob_t,
+        group.by = 'RNA_snn_res.1.2',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+
+DimPlot(se_ob_t,
+        group.by = 'RNA_snn_res.1.2',
+        split.by = 'orig.ident',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+```
+
+#### Annotation Cell Type
+
+```{r}
+cd4 <- c(1,2,8,14,15)
+cd8 <- c(0,3,5,6,9,10,11,12,13)
+nk <- c(4)
+tgd <- c(7,16)
+
+cell_types_6 <- c(rep('CD4',length(cd4)),
+                 rep('CD8',length(cd8)),
+                 rep('NK',length(nk)),
+                 rep('Tgd',length(tgd)))
+cell_type_5 <- c('CD4-C1','CD4-C2','CD4-C3','CD4-*','CD4-*',
+                 'CD8-C1','CD8-C2','CD8-C3','CD8-C4','CD8-C5',
+                 'CD8-C6','CD8-C7','CD8-C8','CD8-C9',
+                 'NK',
+                 'Tgd','Tgd')
+cell_map <- data.frame(clusters = c(cd4,cd8,nk,tgd),
+                       cell_types_6 = cell_types_6,
+                       cell_types_5 = cell_type_5) %>% 
+  arrange(clusters)
+
+
+cluster_letters <- cell_map$cell_types_6[se_ob_t$RNA_snn_res.1.2]
+se_ob_t <- AddMetaData(
+  object = se_ob_t,
+  metadata = cluster_letters,
+  col.name = 'cell_types_6')
+
+cluster_letters <- cell_map$cell_types_5[se_ob_t$RNA_snn_res.1.2]
+se_ob_t <- AddMetaData(
+  object = se_ob_t,
+  metadata = cluster_letters,
+  col.name = 'cell_types_5')
+
+DimPlot(se_ob_t,
+        group.by = 'cell_types_6',
+        label = T,label.size = 3.5,
+        cols = randomcoloR::randomColor(17))
+
+jjDotPlot(object = se_ob_t,
+          gene = markers,
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_5',
+          cluster.order = c('CD4-C1','CD4-C3','CD4-C2',
+                            'CD8-C1','CD8-C8','CD8-C6','CD8-C3','CD8-C2',
+                            'CD8-C5','CD8-C9','CD8-C7','CD8-C4',
+                            'Tgd','NK'))
+```
+
+#### Del CD4-\* cluster
+
+```{r}
+seurat_save_rds(se_ob_t,path = './data/PTC_ATC/se_ob_t.rds')
+se_ob_t <- subset(se_ob_t,
+                  cell_types_5 %in% c('CD4-C1','CD4-C2','CD4-C3',
+                                      'CD8-C1','CD8-C2','CD8-C3','CD8-C4','CD8-C5',
+                                      'CD8-C6','CD8-C7','CD8-C8','CD8-C9',
+                                      'NK',
+                                      'Tgd','Tgd'))
+seurat_save_rds(se_ob_t,path = './data/PTC_ATC/se_ob_t_del_CD4-*.rds')
+
+
+DimPlot(se_ob_t,
+        group.by = 'cell_types_5',
+        label = T,label.size = 3.5,
+        cols = randomcoloR::randomColor(17))
+jjDotPlot(object = se_ob_t,
+          gene = markers,
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_5',
+          cluster.order = c('CD4-C1','CD4-C3','CD4-C2',
+                            'CD8-C1','CD8-C8','CD8-C6','CD8-C3','CD8-C2',
+                            'CD8-C5','CD8-C9','CD8-C7','CD8-C4',
+                            'Tgd','NK'))
+```
+
+#### FindMarkers
+
+```{r}
+Idents(se_ob_t) <- 'cell_types_5'
+cd8.t.markers <- FindAllMarkers(subset(se_ob_t,cell_types_6 != 'CD4'),
+                            test.use = 'MAST',
+                            only.pos = T)
+cd4.t.markers <- FindAllMarkers(subset(se_ob_t,cell_types_6=='CD4'),
+                            test.use = 'MAST',
+                            only.pos = T)
+```
+
+#### Cal cyto exhau score
+
+```{r}
+t.genesets <- readxl::read_excel('~/Documents/bio-ann-file/T_genesets_from_nature_medicine/Table.S6.xlsx')
+t.genesets <- as.list(t.genesets)
+t.genesets <- lapply(t.genesets, function(x){
+                                              x <- x[!is.na(x)] 
+                                              return(x)})
+se_ob_t <- AddModuleScore(
+  object = se_ob_t,
+  features = list(t.genesets$Cytotoxicity),
+  name = 'Cytotoxic'
+)
+se_ob_t <- AddModuleScore(
+  object = se_ob_t,
+  features = list(t.genesets$Exhaustion),
+  name = 'Exhaution'
+)
+se_ob_t <- AddModuleScore(
+  object = se_ob_t,
+  features = list(t.genesets$Naïve),
+  name = 'Naive'
+)
+se_ob_t <- AddModuleScore(
+  object = se_ob_t,
+  features = list(treg_gene$SYMBOL),
+  name = 'Treg'
+)
+```
+
+#### Cal cell cycle score
+
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+se_ob_t <- CellCycleScoring(se_ob_t, 
+                            s.features = s.genes, 
+                            g2m.features = g2m.genes, 
+                            set.ident = TRUE)
+```
+
+#### Cell Fraction
+
+```{r}
+cell_ident <- data.frame(orig.ident = se_ob_t$orig.ident,
+                        sample = se_ob_t$condition,
+                        cluster = se_ob_t$cell_types_5)
+
+plot.data <- cell_ident %>% 
+  group_by(orig.ident,sample,cluster) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  ungroup() 
+
+# bar plot
+ggbarplot(plot.data,'cluster','freq',add = "median_q1q3",
+          fill = 'sample',palette = cdt_color,
+          position = position_dodge(0.9))+
+  rotate_x_text(45)
+```
+
+#### my ECDF(用Boxplot代替)
+
+```{r}
+plot.data <- se_ob_t@meta.data %>% 
+  dplyr::select(.,c('condition','cell_types_5',
+                    'Cytotoxic1','Exhaution1','Naive1','Treg1')) %>% 
+  dplyr::rename(group = cell_types_5,
+                cytotoxic = Cytotoxic1,
+                exhaution = Exhaution1,
+                treg = Treg1,
+                naive = Naive1)
+
+plot.data %>% 
+  group_by(group) %>% 
+  summarise(naive = median(naive)) %>% 
+  arrange(naive) %>% 
+  ggbarplot(x='group',y='naive',
+            fill = 'group',
+            palette = randomcoloR::randomColor(14))+
+  rotate_x_text(40)
+
+plot.data %>%
+  mutate(group2 = str_sub(group,1,3)) %>% 
+  ggboxplot(.,
+          x= 'condition',
+          y = 'cytotoxic',
+          title = 'cd8.t',outlier.shape = NA)+
+  facet_wrap(facets = 'group2',scales = 'free',nrow = 1)+
+  stat_compare_means(comparisons = list(c('PTC','ATC')))
+```
+
+#### ssGSVA
+
+```{r}
+
+library(Seurat)
+library(msigdbr)
+library(GSVA)
+library(clusterProfiler)
+library(patchwork)
+scRNA <- subset(se_ob_t,cell_types_6 == 'CD4')
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- NormalizeData(scRNA)
+
+Idents(scRNA) <- "cell_types_5" 
+expr <- AverageExpression(scRNA, assays = "RNA", slot = "data")[[1]]
+expr <- expr[rowSums(expr)>0,]  
+expr <- as.matrix(expr)
+
+## geneset1
+genesets <- msigdbr(species = "Homo sapiens", category = "H") 
+genesets <- subset(genesets, select = c("gs_name","gene_symbol")) %>% 
+  as.data.frame() %>% 
+  mutate(gs_name = str_remove(gs_name,'HALLMARK_'))
+seleted_pathway = c('APOPTOSIS','HYPOXIA','EPITHELIAL_MESENCHYMAL_TRANSITION',
+                    'GLYCOLYSIS','ANGIOGENESIS')
+genesets <- genesets %>% dplyr::filter(gs_name %in% seleted_pathway)
+genesets <- split(genesets$gene_symbol, genesets$gs_name)
+
+## geneset2
+genesets2 <- readxl::read_excel('~/Documents/bio-ann-file/2499_Immune_Related_Gene.xlsx') 
+# genesets2$Symbol <- str_to_title(genesets2$Symbol)
+genesets2 <- split(genesets2$Symbol,genesets2$Category)
+# genesets2$BCRSignalingPathway = NULL
+# genesets2$TCRsignalingPathway = NULL
+# genesets2$NaturalKiller_Cell_Cytotoxicity = NULL
+
+genesets = c(genesets,genesets2)
+
+gsva.res <- GSVA::gsva(expr, genesets, method="gsva") 
+
+p_macro = pheatmap::pheatmap(gsva.res, 
+                             show_colnames = T,show_rownames = T,
+                             scale = "row",
+                             cluster_cols=T,
+                             cluster_rows = T,
+                             main = 'CD4',
+                             # labels_col = c('nThyroid','PTC','ATC')
+                             )
+```
+
+### CD8 T
+
+```{r}
+se_ob_cd8.t <- subset(se_ob_t,cell_types_6 == 'CD8')
+```
+
+#### my ECDF
+
+```{r}
+source('~/Documents/mytools/my_ecdf.r')
+```
+
+#### Fig3 b Dotplot
+
+```{r}
+jjDotPlot(object = se_ob_cd8.t,
+          gene = c('Exhaution1','Cytotoxic1','Naive1','G2M.Score','ENTPD1'),
+          ytree = T,
+          rescale = T,
+          rescale.min = 0, 
+          rescale.max = 1,
+          id = 'cell_types_5')
+```
+
+#### Fig3 c
+
+```{r}
+se_ob_cd8.t@meta.data %>% 
+  group_by(cell_types_5) %>%
+  summarise(Cytotoxic = mean(Cytotoxic1),Exhaution = mean(Exhaution1)) %>%
+  # filter(RNA_snn_res.1.2 != 4) %>%
+  ggscatter(x='Cytotoxic',y='Exhaution',
+            label = 'cell_types_5',
+            # color = "#00A6B3", shape = 21, size = 2,
+            cor.coef = T,add = 'loess')+
+  theme(panel.border = element_rect(fill=NA,color="black",linetype="solid",size = 1))
+```
+
+#### Fig3 d Vlnplot
+
+```{r}
+markers <- c('HAVCR2','LAG3','TIGIT','PDCD1','LAYN','TOX','CTLA4',
+             'GNLY','IFNG','KLRD1','PRF1','GZMB','GZMH')
+VlnPlot(se_ob_cd8.t,
+        features = markers,pt.size = 0,stack = T,flip = T,
+        group.by = 'condition')
+```
+
+#### Pseudotime analysis
+
+```{r}
+library(monocle3)
+
+se_ob_cds <- subset(se_ob_t,(condition == 'ATC'&cell_types_6 =='CD8'))
+
+cds <- SeuratWrappers::as.cell_data_set(se_ob_cds)
+cds <- cluster_cells(cds = cds, reduction_method = "UMAP")
+cds <- learn_graph(cds, use_partition = TRUE)
+cds <- order_cells(cds,reduction_method = "UMAP")
+
+plot_cells(
+    cds = cds,
+    color_cells_by = "pseudotime",
+    show_trajectory_graph = F,group_label_size = 5,
+)
+cds_sub <- choose_graph_segments(cds)
+```
+
+```{r}
+se_ob_t <- AddMetaData(
+  object = se_ob_t,
+  metadata = cds@principal_graph_aux@listData$UMAP$pseudotime,
+  col.name = "pseudo.cd8.ATC"
+)
+
+```
+
+### B cells
+
+```{r}
+source("~/Documents/mytools/seurat_help_func.R")
+se_ob_imm <- seurat_read_rds('./data/PTC_ATC/se_ob_imm.rds',scale = 'part')
+se_ob_b <- subset(se_ob_imm, cell_types_3 =='B')
+```
+
+
+#### Workflow
+
+```{r}
+# Workflow ----
+se_ob_b <- Seurat::NormalizeData(se_ob_b, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob_b)
+se_ob_b <- ScaleData(se_ob_b)
+
+se_ob_b <- RunPCA(se_ob_b,
+                   features = VariableFeatures(object = se_ob_b)[!str_detect(VariableFeatures(object = se_ob_b),'^IG.*')])
+
+DimPlot(se_ob_b, reduction = "pca",group.by = 'orig.ident')
+ElbowPlot(se_ob_b,ndims = 50)
+VlnPlot(object = se_ob_b, features = "PC_1", group.by = "orig.ident", pt.size = .1)
+
+library(harmony)
+# Remove batch effect ----
+se_ob_b <- se_ob_b %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob_b, reduction = "harmony")
+p2 = ElbowPlot(se_ob_b,reduction = "harmony",ndims = 30)
+p3 = VlnPlot(object = se_ob_b, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob_b <- RunUMAP(se_ob_b, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob_b <- FindClusters(se_ob_b, 
+                      resolution = c(0.2, 0.4, 0.6,
+                                     0.8, 1.0, 1.2)) 
+```
+
+#### Find markers
+
+```{r}
+b.markers <- FindAllMarkers(se_ob_b,
+                            test.use = 'MAST',
+                            only.pos = T)
+```
+
+#### Annotation Marker Gene
+
+```{r}
+b_marker = c('CRIP1','IGHM','MS4A1', #B 
+             'SDC1', #plasma
+             'IGHD', 'FCER2', 'TCL1A','IL4R',#naive
+             'CD27', 'AIM2','TNFRSF13B', #memory
+             # 'LRMP', 'SUGCT', 'MME', 'MKI67','AICDA',#GC
+             'STMN1'#,'PCNA' #proliferating
+             
+)
+plasma_marker = c('IGHG1','IGHG2','IGHG3', #IGG
+                  'IGHA1','IGHA2','JCHAIN', #IGA
+                  'MZB1','DERL3','TNFRSF17' #plasma
+)
+
+jjDotPlot(object = se_ob_b,
+          gene = c(b_marker,plasma_marker),
+          xtree = F,
+          ytree = T, 
+          # rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'RNA_snn_res.1')
+
+DimPlot(se_ob_b,
+        group.by = 'RNA_snn_res.1',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+
+DimPlot(se_ob_b,
+        group.by = 'RNA_snn_res.1.2',
+        split.by = 'orig.ident',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+```
+
+#### Annotation Cell Type
+
+```{r}
+naive <- c(6,12)
+memo <- c(0,14)
+prolifer <- c(2)
+igg <- c(3,7,9,10,13,15,16,17,18)
+iga <- c(4,1,8)
+other <- c(5,11)
+
+cell_types_6 <- c(rep('Naive',length(naive)),
+                 rep('Memory',length(memo)),
+                 rep('Prolifering',length(prolifer)),
+                 rep('IgG',length(igg)),
+                 rep('IgA',length(iga)),
+                 rep('other',length(other)))
+
+cell_type_5 <- c('Naive-C1','Naive-C2',
+                 'Memory-C1','Memory-C2',
+                 'Prolifering-C1',
+                 'IgG-C1','IgG-C2','IgG-C3','IgG-C4','IgG-C5',
+                 'IgG-C6','IgG-C7','IgG-C8','IgG-C9',
+                 'IgA-C1','IgA-C2','IgA-C3',
+                 "Others","Others")
+cell_map <- data.frame(clusters = c(naive,memo,prolifer,igg,iga,other),
+                       cell_types_6 = cell_types_6,
+                       cell_types_5 = cell_type_5) %>% 
+  arrange(clusters)
+
+
+cluster_letters <- cell_map$cell_types_6[se_ob_b$RNA_snn_res.1.2]
+se_ob_b <- AddMetaData(
+  object = se_ob_b,
+  metadata = cluster_letters,
+  col.name = 'cell_types_6')
+
+cluster_letters <- cell_map$cell_types_5[se_ob_b$RNA_snn_res.1.2]
+se_ob_b <- AddMetaData(
+  object = se_ob_b,
+  metadata = cluster_letters,
+  col.name = 'cell_types_5')
+se_ob_b <- subset(se_ob_b,cell_types_6 != "other")
+DimPlot(se_ob_b,
+        group.by = 'cell_types_6',
+        label = T,label.size = 3.5,
+        cols = randomcoloR::randomColor(17))
+
+jjDotPlot(object = se_ob_b,
+          gene = c(b_marker,plasma_marker),
+          xtree = F,
+          ytree = F, 
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'cell_types_6')
+```
+
+#### Cell Fraction
+
+```{r}
+cell_ident <- data.frame(orig.ident = se_ob_b$orig.ident,
+                        sample = se_ob_b$condition,
+                        cluster = se_ob_b$RNA_snn_res.1.2)
+
+plot.data <- cell_ident %>% 
+  group_by(orig.ident,sample,cluster) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  ungroup() 
+
+# bar plot
+library(ggpubr)
+ggboxplot(plot.data,'cluster','freq',
+          color = 'sample',add = 'jitter')+
+  rotate_x_text(40)+
+  stat_compare_means(aes(group = sample))
+```
+
+### Macrophage
+```{r}
+source("~/Documents/mytools/seurat_help_func.R")
+se_ob_imm <- seurat_read_rds('./data/PTC_ATC/se_ob_imm.rds',scale = 'part')
+se_ob_my <- subset(se_ob_imm, cell_types_3 == 'Myeloid')
+```
+#### Workflow
+````{r}
+# Workflow ----
+se_ob_my <- Seurat::NormalizeData(se_ob_my, 
+                               normalization.method = "LogNormalize", 
+                               scale.factor = 10000) %>% 
+  FindVariableFeatures(., 
+                       selection.method = "vst", 
+                       nfeatures = 2000)
+
+# all.genes <- rownames(se_ob_b)
+se_ob_my <- ScaleData(se_ob_my)
+
+se_ob_my <- RunPCA(se_ob_my,
+                   features = VariableFeatures(object = se_ob_my))
+
+DimPlot(se_ob_my, reduction = "pca",group.by = 'orig.ident')
+ElbowPlot(se_ob_my,ndims = 50)
+VlnPlot(object = se_ob_my, features = "PC_1", group.by = "orig.ident", pt.size = .1)
+
+library(harmony)
+# Remove batch effect ----
+se_ob_my <- se_ob_my %>% 
+  RunHarmony("orig.ident", plot_convergence = TRUE)
+
+library(cowplot)
+p1 = DimPlot(se_ob_my, reduction = "harmony")
+p2 = ElbowPlot(se_ob_my,reduction = "harmony",ndims = 30)
+p3 = VlnPlot(object = se_ob_my, features = "harmony_1", group.by = "orig.ident", pt.size = .1)
+plot_grid(p1,p2,p3)
+
+se_ob_my <- RunUMAP(se_ob_my, 
+                 reduction = 'harmony', 
+                 dims = 1:20,
+                 seed.use = 1) %>% 
+  RunTSNE(.,reduction = 'harmony', 
+          dims = 1:20,
+          seed.use = 1) %>% 
+  FindNeighbors(., reduction = 'harmony', 
+                dims = 1:20)
+
+se_ob_my <- FindClusters(se_ob_my, 
+                      resolution = c(0.2, 0.4, 0.6,
+                                     0.8, 1.0, 1.2)) 
+```
+
+#### Find markers
+
+```{r}
+my.markers <- FindAllMarkers(se_ob_my,
+                            test.use = 'MAST',
+                            only.pos = T)
+```
+
+#### Annotation Marker Gene
+
+```{r}
+dc = c('LGALS2','LAMP3','CD1E','CD1C')
+m1 = c('IL23A','IL1A','IL1B','TNF')
+m2 = c('CD163','PDCD1LG2','MRC1','CCL13','CCL18','LYVE1','VEGFB','CTSB','MMP14','FN1')
+mono = c('S100A12','VCAN','CXCL8','FCN1','CD300E','THBS1','G0S2','NAMPT','BCL2A1','CD36','MARCO',
+         'AQP9','TIMP1','CCR2','LILRA5')
+markers = c(dc,m1,m2,mono)
+my_marker = c('CD1E','CD1C','LAMP3','S100A12','VCAN','TNF','IL23A','CD163','MRC1')
+
+jjDotPlot(object = se_ob_my,
+          gene = my_marker,
+          ytree = T,
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'RNA_snn_res.1.2')
+
+AverageHeatmap(object = se_ob_my,
+               markerGene = na.omit(markers),cluster_columns = T,
+               group.by = 'RNA_snn_res.1.2')
+
+DimPlot(se_ob_my,
+        group.by = 'RNA_snn_res.1.2',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+
+DimPlot(se_ob_my,
+        group.by = 'RNA_snn_res.1.2',
+        split.by = 'orig.ident',
+        label = T,
+        cols = randomcoloR::randomColor(24))
+```
+
+#### Cal gene sig
+```{r}
+GeneSets = as.list(readxl::read_excel('~/Documents/bio-ann-file/myeloid_sig.xlsx'))
+
+for (type in names(GeneSets)) {
+  genes = GeneSets[[type]]
+  genes = genes[!is.na(genes)]
+  se_ob_my <- AddModuleScore(
+    object = se_ob_my,
+    features = list(genes),
+    name = type)
+}
+
+jjDotPlot(object = se_ob_my,
+          gene = c('DC.activation1',
+                   "DC.migration1",
+                   "DC.tolorgenic1",
+                   'Monocyte.signature1',
+                   'M1.signature1',
+                   'M2.siganture1'),
+          ytree = F,
+          rescale = T, rescale.min = 0, rescale.max = 1,
+          id = 'RNA_snn_res.1.2')+coord_flip()
+```
+
+#### Cell Fraction
+
+```{r}
+cell_ident <- data.frame(orig.ident = se_ob_my$orig.ident,
+                        sample = se_ob_my$condition,
+                        cluster = se_ob_my$cell_types_6)
+
+plot.data <- cell_ident %>% 
+  group_by(orig.ident,sample,cluster) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  group_by(orig.ident) %>% 
+  mutate(freq = round(count/(sum(count)),3)) %>% 
+  ungroup() 
+
+# bar plot
+library(ggpubr)
+ggboxplot(plot.data,'cluster','freq',
+          color = 'sample',add = 'jitter')+
+  rotate_x_text(40)+
+  stat_compare_means(aes(group = sample))
+```
+
+
+#### Annotation Cell Type
+
+```{r}
+dc <- c(6,13)
+mono <- c(2,7,14)
+m1 <- c(3,4,9,10)
+m2 <- c(0,5,8,11,12)
+t <- c(1)
+
+cell_types_6 <- c(rep('DC',length(dc)),
+                 rep('Mono',length(mono)),
+                 rep('M1',length(m1)),
+                 rep('M2',length(m2)),
+                 rep('T',length(t)))
+
+cell_type_5 <- c('DC-C1','DC-C2',
+                 'Mono-C1','Mono-C2','Mono-C3',
+                 'M1-C1','M1-C2','M1-C3','M1-C4',
+                 'M2-C1','M2-C2','M2-C3','M2-C4','M2-C5',
+                 "T")
+cell_map <- data.frame(clusters = c(dc,mono,m1,m2,t),
+                       cell_types_6 = cell_types_6,
+                       cell_types_5 = cell_type_5) %>% 
+  arrange(clusters)
+
+
+cluster_letters <- cell_map$cell_types_6[se_ob_my$RNA_snn_res.1.2]
+se_ob_my <- AddMetaData(
+  object = se_ob_my,
+  metadata = cluster_letters,
+  col.name = 'cell_types_6')
+
+cluster_letters <- cell_map$cell_types_5[se_ob_my$RNA_snn_res.1.2]
+se_ob_my <- AddMetaData(
+  object = se_ob_my,
+  metadata = cluster_letters,
+  col.name = 'cell_types_5')
+se_ob_my <- subset(se_ob_my,cell_types_6 != "T")
+DimPlot(se_ob_my,
+        group.by = 'cell_types_6',
+        label = T,label.size = 3.5,
+        cols = randomcoloR::randomColor(4))
+```
+
+#### ssGSVA
+
+```{r}
+
+library(Seurat)
+library(msigdbr)
+library(GSVA)
+library(clusterProfiler)
+library(patchwork)
+
+scRNA <- subset(se_ob_my,cell_types_6 == 'M2')
+DefaultAssay(scRNA) <- "RNA"
+scRNA <- NormalizeData(scRNA)
+
+Idents(scRNA) <- "condition" 
+expr <- AverageExpression(scRNA, assays = "RNA", slot = "data")[[1]]
+expr <- expr[rowSums(expr)>0,]  #选取非零基因
+expr <- as.matrix(expr)
+
+## geneset1
+genesets <- msigdbr::msigdbr(species = "Homo sapiens", category = "H") 
+genesets <- subset(genesets, select = c("gs_name","gene_symbol")) %>% 
+  as.data.frame() %>% 
+  mutate(gs_name = str_remove(gs_name,'HALLMARK_'))
+seleted_pathway = c('APOPTOSIS','HYPOXIA','EPITHELIAL_MESENCHYMAL_TRANSITION',
+                    'GLYCOLYSIS','ANGIOGENESIS')
+genesets <- genesets %>% dplyr::filter(gs_name %in% seleted_pathway)
+genesets <- split(genesets$gene_symbol, genesets$gs_name)
+
+## geneset2
+genesets2 <- readxl::read_excel('~/Documents/bio-ann-file/2499_Immune_Related_Gene.xlsx') 
+# genesets2$Symbol <- str_to_title(genesets2$Symbol)
+genesets2 <- split(genesets2$Symbol,genesets2$Category)
+# genesets2$BCRSignalingPathway = NULL
+# genesets2$TCRsignalingPathway = NULL
+# genesets2$NaturalKiller_Cell_Cytotoxicity = NULL
+
+genesets = c(genesets,genesets2)
+
+gsva.res <- GSVA::gsva(expr, genesets, method="gsva") 
+
+p_macro = pheatmap::pheatmap(gsva.res, 
+                             show_colnames = T,show_rownames = T,
+                             scale = "none",
+                             cluster_cols=T,
+                             cluster_rows = T,
+                             main = 'M2',
+                             # labels_col = c('nThyroid','PTC','ATC')
+                             )
+```
